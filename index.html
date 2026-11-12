@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>USV MONITOR — ラット超音波モニタ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo" aria-hidden="true"></span><div><h1>USV MONITOR</h1><p>ラット超音波 発声モニタ — 色で見る「いつ・何Hz・どれだけ」</p></div></div>
+  <div id="statusPill" class="pill idle">待機中</div>
+</header>
+
+<main>
+<!-- 入力 -->
+<section class="card" id="srcCard">
+  <div class="row">
+    <button id="btnMic" class="btn primary">● マイクで計測開始</button>
+    <button id="btnStop" class="btn" disabled>■ 停止</button>
+    <label class="btn file">WAVファイルを解析<input id="fileIn" type="file" accept=".wav,audio/wav,audio/x-wav"></label>
+    <button id="btnDemo" class="btn">デモデータ</button>
+    <button id="btnMark" class="btn accent" title="ショートカット: M">⚑ マーカー</button>
+    <button id="btnClear" class="btn ghost">記録をクリア</button>
+  </div>
+  <div class="row small">
+    <label>入力デバイス <select id="selDev"><option value="">既定のマイク</option></select></label>
+    <label>サンプリング <select id="selRate">
+      <option value="0">自動</option><option value="96000">96 kHz</option><option value="192000" selected>192 kHz</option><option value="250000">250 kHz</option><option value="384000">384 kHz</option></select></label>
+    <label>WAVの録音開始時刻 <input id="fileStart" type="datetime-local" step="1"></label>
+  </div>
+  <div id="rateInfo" class="note">超音波（22〜100 kHz）を見るには、超音波マイク＋高サンプリング（192 kHz以上）の入力が必要です。通常のマイク（44.1/48 kHz）では約22 kHzまでしか見えません。</div>
+  <div id="restore" class="note warn" hidden></div>
+  <div id="prog" class="prog" hidden><div id="progBar"></div><span id="progTxt"></span></div>
+</section>
+
+<!-- いま -->
+<section class="card" id="nowCard">
+  <div class="nowgrid">
+    <div class="now">
+      <div id="nowSwatch" class="swatch"></div>
+      <div class="nowtxt">
+        <div id="nowClock" class="mono big">--:--:--</div>
+        <div id="nowFreq" class="mono">— kHz</div>
+        <div id="nowCls" class="muted">声なし</div>
+      </div>
+    </div>
+    <div class="specwrap"><canvas id="spec" height="140"></canvas><div class="cap">ライブスペクトログラム（約15秒）／ 声が検出された瞬間は周波数の色で点が付きます</div></div>
+  </div>
+</section>
+
+<!-- 時間履歴 -->
+<section class="card" id="tlCard">
+  <div class="cardhead">
+    <h2>色の時間履歴</h2>
+    <div class="tools">
+      <button class="btn sm" data-w="2">2秒</button><button class="btn sm" data-w="10">10秒</button><button class="btn sm" data-w="60">1分</button>
+      <button class="btn sm" data-w="600">10分</button><button class="btn sm" data-w="3600">1時間</button><button class="btn sm" data-w="0">全体</button>
+      <button class="btn sm" id="zIn">＋</button><button class="btn sm" id="zOut">－</button>
+      <label class="chk"><input type="checkbox" id="follow" checked> 追従</label>
+    </div>
+  </div>
+  <div id="tlWrap"><canvas id="tl"></canvas><div id="tip" class="tip" hidden></div></div>
+  <div class="cap">ホイール／ピンチで拡大縮小・ドラッグで移動・ダブルクリックで全体表示。上段＝色の帯（幅＝鳴いていた長さ）、中段＝周波数（縦位置＝kHz）、下段＝全体の中の表示位置。<b>黒枠</b>は「不明（中間）」の声。</div>
+  <canvas id="legend" height="54"></canvas>
+</section>
+
+<!-- まとめ -->
+<section class="card" id="sumCard">
+  <div class="cardhead">
+    <h2>まとめ</h2>
+    <div class="tools">
+      <label>集計範囲 <select id="sumRange"><option value="all">計測全体</option><option value="view">表示中の範囲</option></select></label>
+      <label>基準 <select id="sumBase"><option value="meas">計測した時間 = 100%</option><option value="24h">24時間 = 100%</option></select></label>
+    </div>
+  </div>
+  <div class="sumgrid">
+    <div>
+      <h3>全時間に対する割合</h3>
+      <div id="barTime" class="stack"></div>
+      <h3>発声の内訳（声がしていた時間のうち）</h3>
+      <div id="barDur" class="stack"></div>
+      <div id="sumLine" class="note"></div>
+    </div>
+    <div class="tblwrap"><table id="sumTbl"><thead><tr><th>種類</th><th>回数</th><th>合計時間</th><th>全体比</th><th>発声比(回数)</th><th>発声比(時間)</th></tr></thead><tbody></tbody></table></div>
+  </div>
+  <h3>時間帯ごとの回数（時）</h3>
+  <canvas id="hourly" height="130"></canvas>
+</section>
+
+<!-- 一覧 -->
+<section class="card" id="evCard">
+  <div class="cardhead">
+    <h2>声のリスト</h2>
+    <div class="tools">
+      <label class="chk"><input type="checkbox" id="onlyUnk"> 不明（中間）だけ</label>
+      <label>動画の開始時刻 <input id="videoStart" type="time" step="1"></label>
+      <button class="btn sm" id="csvEv">CSV（声・マーカー）</button>
+      <button class="btn sm" id="csvSum">CSV（まとめ）</button>
+    </div>
+  </div>
+  <div class="tblwrap tall"><table id="evTbl"><thead><tr><th>時刻</th><th>動画位置</th><th>長さ</th><th>周波数 kHz</th><th>判定</th><th>理由</th><th>音</th></tr></thead><tbody></tbody></table></div>
+  <div id="evNote" class="cap"></div>
+</section>
+
+<details class="card" id="cfgCard">
+  <summary>判定のしきい値（ふだんは触らなくてOK）</summary>
+  <div class="cfggrid">
+    <label>検出感度 <input id="cThr" type="range" min="10" max="35" step="1" value="18"><span id="vThr" class="mono"></span><small>低いほど小さな声も拾う／雑音も増える（開始時に反映）</small></label>
+    <label>境界の幅 <input id="cMargin" type="range" min="0" max="5" step="0.5" value="2"><span id="vMargin" class="mono"></span><small>26・40 kHz の前後この幅に入る声を「不明」とする</small></label>
+    <label>最短の長さ <input id="cMin" type="range" min="5" max="60" step="5" value="10"><span id="vMin" class="mono"></span><small>これより短い検出は雑音として捨てる（開始時に反映）</small></label>
+    <label class="chk"><input id="cDur" type="checkbox" checked> 長さの条件も使う<small>22 kHz帯は0.5 s以上、31/50 kHz帯は0.5 s未満から外れたら「不明」</small></label>
+  </div>
+</details>
+
+<section class="card refs">
+  <h2>判定の基準</h2>
+  <ul>
+    <li><span class="dot" style="background:var(--c22)"></span><b>22 kHz</b>（18〜26 kHz・0.5 s以上）— ストレス・苦痛</li>
+    <li><span class="dot" style="background:var(--c31)"></span><b>31 kHz</b>（26〜40 kHz・0.5 s未満）— 社会的孤立・不平等（嫉妬様の状態と考えられる声）</li>
+    <li><span class="dot" style="background:var(--c50)"></span><b>50 kHz</b>（40〜100 kHz・0.5 s未満）— うれしい・親和（appetitive）</li>
+    <li><span class="dot unk"></span><b>不明（中間）</b> — 上のどれにも当てはまらない／境界付近／帯をまたぐ／長さが合わない声</li>
+  </ul>
+  <p class="cap">分類は Okabe et al., iScience 26, 106243 (2023) の定義に基づきます。声の意味づけは先行研究にもとづく目安であり、行動映像との照合で確認する前提のモニタ用ツールです。</p>
+</section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
