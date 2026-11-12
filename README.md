@@ -1,0 +1,6 @@
+[README.md](https://github.com/user-attachments/files/34755215/README.md)
+# USV MONITOR（ラット超音波モニタ）
+GitHub Pagesに index.html / style.css / app.js の3つを置くだけで動きます（外部ライブラリなし）。
+- マイク計測：超音波マイク＋192kHz以上の入力が必要（Chrome推奨、https必須）。タブは開いたまま。
+- WAV解析：長時間の録音ファイルをそのまま解析（16/24/32bit）。録音開始時刻を入力すると実時刻で表示。
+- CSV：声リスト（時刻・長さ・周波数・判定・マーカー）とまとめ。
