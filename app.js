@@ -398,7 +398,7 @@ function onFrame(d, fk, active, snr, tc) {
     let k0 = Math.floor(f0 / d.df), k1 = Math.max(k0, Math.floor(f1 / d.df)); if (k0 < d.kLo - 1 || k1 > d.kHi + 1) continue;
     let m = -200; for (let k = k0; k <= k1; k++) if (d.db[k] > m) m = d.db[k]; if (m > colMax[y]) colMax[y] = m;
   }
-  if (active && snr > colSnr) { colFreq = fk; colSnr = snr; }
+  if (active && snr > colSnr) { colFreq = fk; colSnr = snr; S.nowSnr = snr; }
   colAct = colAct || active; colN++;
   S.floorDb = d.floor;
   if (tc - SPC.lastCol >= 40) {
@@ -679,6 +679,52 @@ function csvSummary() {
   return '﻿' + rows.map(r => r.join(',')).join('\r\n');
 }
 
+
+/* ============ realtime blob ============ */
+const B = { f: 31, a: 0, hold: 0, t0: performance.now(), sim: null };
+function blobState() {
+  const now = Date.now();
+  if (B.sim) { // simulated voice sequence
+    const p = (performance.now() - B.sim) / 1000, seq = [[55, .6], [31, .5], [22, 1.6], [27, .5], [40.5, .5], [52, .6], [35, .4]];
+    let tot = seq.reduce((a, x) => a + x[1] + .6, 0), q = p % tot;
+    for (const [f, d] of seq) { if (q < d) return { act: true, f, snr: 28 + 8 * Math.sin(p * 20) }; q -= d + .6; }
+    return { act: false };
+  }
+  if (S.mode === 'mic' && S.nowAct && now - S.nowT < 300) return { act: true, f: S.nowF, snr: S.nowSnr || 25 };
+  return { act: false };
+}
+function drawBlob() {
+  const c = $('blob'), d = DPR(), W = c.clientWidth, H = c.clientHeight; if (!W) return;
+  if (c.width !== Math.round(W * d)) { c.width = Math.round(W * d); c.height = Math.round(H * d); }
+  const g = c.getContext('2d'); g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, W, H); g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+  const st = blobState(), t = (performance.now() - B.t0) / 1000;
+  if (st.act) { B.f += (st.f - B.f) * .5; B.hold = 1; B.a += (Math.min(1, Math.max(.35, st.snr / 40)) - B.a) * .3; }
+  else { B.a *= .9; B.hold = Math.max(0, B.hold - 1 / 90); }
+  const cx = W / 2, cy = H / 2, base = Math.min(W, H) * .27, k = classify({ fmed: B.f, dur: B.f <= 26 ? .6 : .1, fmin: B.f, fmax: B.f });
+  const hue = hueF(B.f), vis = B.hold, sat = st.act || vis > 0 ? 80 * vis + 5 : 0;
+  const R = base * (1 + .12 * B.a) , pts = 72;
+  g.beginPath();
+  for (let i = 0; i <= pts; i++) {
+    const a = i / pts * Math.PI * 2;
+    const w = Math.sin(a * 3 + t * 5) * .5 + Math.sin(a * 5 - t * 7) * .35 + Math.sin(a * 8 + t * 11) * .25;
+    const r = R * (1 + .02 * Math.sin(t * 1.5 + a * 2) + B.a * .16 * w);
+    const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r; i ? g.lineTo(x, y) : g.moveTo(x, y);
+  }
+  g.closePath();
+  const gr = g.createRadialGradient(cx, cy, R * .1, cx, cy, R * 1.2);
+  gr.addColorStop(0, `hsl(${hue} ${sat}% ${58 - 6 * vis}%)`); gr.addColorStop(1, `hsl(${hue} ${sat}% ${40 + 20 * (1 - vis)}%)`);
+  g.shadowColor = `hsla(${hue},${sat}%,45%,${.5 * vis})`; g.shadowBlur = 30 * vis; g.fillStyle = gr; g.fill(); g.shadowBlur = 0;
+  g.lineWidth = 3; g.strokeStyle = `hsla(${hue},${sat}%,35%,${.4 + .5 * vis})`; g.stroke();
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = vis > .15 ? '#fff' : '#6b7280'; g.shadowColor = '#0006'; g.shadowBlur = vis > .15 ? 4 : 0;
+  if (vis > .05) {
+    g.font = `700 ${Math.round(R * .26)}px "Space Grotesk","Zen Kaku Gothic New",sans-serif`; g.fillText(B.f.toFixed(1) + ' kHz', cx, cy - R * .15);
+    g.font = `500 ${Math.round(R * .17)}px "Zen Kaku Gothic New",sans-serif`;
+    g.fillText(k.c === 'unk' ? '不明（中間）' : CLS[k.c].label, cx, cy + R * .12);
+    if (k.why) { g.font = `400 ${Math.round(R * .11)}px "Zen Kaku Gothic New",sans-serif`; g.fillText(k.why.split('・')[0], cx, cy + R * .34); }
+  } else { g.font = `500 ${Math.round(R * .17)}px "Zen Kaku Gothic New",sans-serif`; g.fillText(S.mode === 'mic' || B.sim ? '声を待っています…' : '待機中', cx, cy); }
+  g.shadowBlur = 0;
+}
+
 /* ============ main loop ============ */
 let lastSlow = 0;
 function tick() {
@@ -686,7 +732,7 @@ function tick() {
   const now = Date.now();
   if (S.live) { S.end = now; S.dirty = true; if (S.follow) clampView(); }
   if (S.mode === 'mic') { $('statusPill').textContent = `REC ${fmtClock(now - S.start)}　声 ${S.events.length}`; }
-  drawSpec();
+  drawSpec(); drawBlob();
   if (S.dirty) { S.dirty = false; drawTL(); }
   if (now - lastSlow > 700 || S.dirtyList) {
     if (S.dirtyList || S.live) { renderSummary(); } lastSlow = now; drawNow();
@@ -701,6 +747,7 @@ function init() {
   $('btnMic').onclick = startMic;
   $('btnStop').onclick = () => { stopAll(false); };
   $('fileIn').onchange = e => { const f = e.target.files[0]; e.target.value = ''; analyzeFile(f); };
+  $('btnSim').onclick = () => { B.sim = B.sim ? null : performance.now(); $('btnSim').textContent = B.sim ? '模擬を止める' : '動作確認（模擬の声）'; };
   $('btnDemo').onclick = demo; $('btnMark').onclick = mark;
   $('btnClear').onclick = () => { if (!S.events.length || confirm('記録を全部消しますか？（CSVを保存していない場合は戻せません）')) { stopAll(true); resetData(); S.mode = 'idle'; setMode('idle'); setInfo('記録をクリアしました。', false); } };
   document.querySelectorAll('[data-w]').forEach(b => b.onclick = () => { setWidth(+b.dataset.w); });
