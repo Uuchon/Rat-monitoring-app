@@ -1,4 +1,3 @@
-[README.md](https://github.com/user-attachments/files/34755215/README.md)
 # USV MONITOR（ラット超音波モニタ）
 GitHub Pagesに index.html / style.css / app.js の3つを置くだけで動きます（外部ライブラリなし）。
 - マイク計測：超音波マイク＋192kHz以上の入力が必要（Chrome推奨、https必須）。タブは開いたまま。
